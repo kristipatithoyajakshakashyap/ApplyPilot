@@ -1,6 +1,6 @@
 ﻿# ApplyPilot
 
-> AI-powered resume optimizer that tailors your resume to any job, scores it using the HackerRank hiring-agent framework, and generates a single-page ATS-ready PDF — all from one command.
+> AI-powered resume optimizer that tailors your resume to any job, scores it using the HackerRank hiring-agent framework, and generates a single-page ATS-ready PDF - all from one command.
 
 ---
 
@@ -144,7 +144,7 @@ python main.py --check --url "https://..." --resume resume_v2.pdf
 
 ## How the Scoring Works
 
-ApplyPilot uses the [HackerRank hiring-agent](https://github.com/interviewstreet/hiring-agent) scoring framework for both its ATS auditor and JD match evaluator. The framework uses evidence-based category scores, bonus points, deductions, and a 0–120 raw scale normalized to 0–100. LLM temperature is set to 0.5 and top_p to 0.9 — the exact same parameters as the official hiring-agent.
+ApplyPilot uses the [HackerRank hiring-agent](https://github.com/interviewstreet/hiring-agent) scoring framework for both its ATS auditor and JD match evaluator. The framework uses evidence-based category scores, bonus points, deductions, and a 0–120 raw scale normalized to 0–100. LLM temperature is set to 0.5 and top_p to 0.9 - the exact same parameters as the official hiring-agent.
 
 ### ATS Auditor
 
@@ -324,14 +324,14 @@ OLLAMA_MODEL=llama3.1:8b
 
 ## Tips
 
-- **Quote all URLs** — `&` in query strings splits the command in CMD/PowerShell if unquoted
-- **Close Excel** before running if `applications.csv` is open — Windows locks the file; ApplyPilot will pause and prompt you
+- **Quote all URLs** - `&` in query strings splits the command in CMD/PowerShell if unquoted
+- **Close Excel** before running if `applications.csv` is open - Windows locks the file; ApplyPilot will pause and prompt you
 - **JS portals** (Greenhouse, Lever, Workday, BlackLine) take 5–10s extra for the headless browser to render
 - **Override resume for one run** without touching `.env`:
   ```bash
   python main.py --check --url "https://..." --resume resume_v2.pdf
   ```
-- **Log the URL without scraping**: pass both `--jd` and `--url` — the JD comes from the file, the URL is only stored in `applications.csv`
+- **Log the URL without scraping**: pass both `--jd` and `--url` - the JD comes from the file, the URL is only stored in `applications.csv`
 
 ---
 
