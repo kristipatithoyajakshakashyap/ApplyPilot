@@ -1,0 +1,69 @@
+﻿# ── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+.Python
+
+# ── Virtual Environment ─────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.env.local
+.env.*.local
+
+# ── Environment / secrets ─────────────────────────────────────
+.env
+
+# ── Resume files ──────────────────────────────────────────────
+*.pdf
+resume*.pdf
+resume*.docx
+resume*.doc
+
+# ── Optimized output folder ───────────────────────────────────
+optimized/
+
+# ── Application log ───────────────────────────────────────────
+applications.csv
+*.csv
+
+# ── Claude / AI tooling ───────────────────────────────────────
+.claude/
+
+# ── VS Code ───────────────────────────────────────────────────
+.vscode/
+*.code-workspace
+
+# ── Playwright ────────────────────────────────────────────────
+playwright-report/
+test-results/
+
+# ── OS files ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Jupyter ────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Temp / scratch ────────────────────────────────────────────
+*.tmp
+*.bak
+scratch/
+tmp/
