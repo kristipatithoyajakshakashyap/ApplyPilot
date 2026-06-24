@@ -338,7 +338,7 @@ OLLAMA_MODEL=llama3.1:8b
 ## Roadmap
 
 - [ ] Auto-discover jobs by role and location (scrape multiple job boards)
-- [ ] Batch optimize — run against a list of URLs in one command
+- [ ] Batch optimize - run against a list of URLs in one command
 - [ ] Cover letter generation
 - [ ] Web UI / dashboard
 
