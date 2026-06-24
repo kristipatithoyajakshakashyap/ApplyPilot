@@ -11,27 +11,12 @@ You give ApplyPilot a job URL or a job description. It:
 1. Scrapes the job posting (including JavaScript-rendered career portals)
 2. Audits your current resume against the job using the HackerRank ATS scoring framework
 3. Rewrites every bullet using Google's XYZ formula (result → metric → method)
-4. Rewrites the full resume — skills section, summary, and experience — to match the job
+4. Rewrites the full resume, skills section, summary, and experience to match the job
 5. Runs up to 5 evaluation iterations until both the ATS score and JD match score reach 85+
 6. Generates a single-page ATS-safe PDF saved as `optimized/<Company>_<Role>.pdf`
 7. Writes first-person "why this role" and "why this company" answers you can copy directly into applications
 8. Logs every run to `applications.csv`
 
----
-
-## Tech Stack
-
-| Layer | Tools |
-|---|---|
-| Language | Python 3.11+ |
-| LLM providers | OpenAI, Featherless, Ollama (OpenAI-compatible API) |
-| Scoring framework | [HackerRank hiring-agent](https://github.com/interviewstreet/hiring-agent) |
-| Web scraping | requests + BeautifulSoup4, Playwright (headless Chromium fallback) |
-| PDF generation | reportlab |
-| PDF extraction | pdfplumber |
-| Config | python-dotenv |
-
----
 
 ## Installation
 
@@ -99,7 +84,7 @@ applypilot/
 
 ApplyPilot has two modes: **optimize** (full pipeline, generates a PDF) and **check** (score your resume against a job, no PDF).
 
-### --optimize — Full Pipeline
+### --optimize - Full Pipeline
 
 Rewrites and optimizes your resume for the job. PDF is auto-named `optimized/<Company>_<Role>.pdf`.
 
@@ -137,7 +122,7 @@ python main.py --url "https://jobs.google.com/jobs/12345" --optimize --resume re
 
 ---
 
-### --check — ATS Score Check (no PDF)
+### --check - ATS Score Check (no PDF)
 
 Scores your resume against a job in seconds. Useful for comparing your resume across multiple roles before committing to a full optimization run.
 
