@@ -1,4 +1,4 @@
-﻿# ── Python ─────────────────────────────────────────────────────
+# ── Python ─────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -30,13 +30,16 @@ resume*.doc
 
 # ── Optimized output folder ───────────────────────────────────
 optimized/
+job_resumes/
 
 # ── Application log ───────────────────────────────────────────
 applications.csv
+jobs.csv
 *.csv
 
 # ── Claude / AI tooling ───────────────────────────────────────
 .claude/
+graphify-out/
 
 # ── VS Code ───────────────────────────────────────────────────
 .vscode/

@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  ApplyPilot — Job Search Config
+#  Edit this file once. Run:  python scrape_jobs.py
+#  CLI args always override config values when passed explicitly.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Candidate Profile ─────────────────────────────────────────────────────────
+candidate:
+  nationality: Indian
+
+  # Visa / work authorization
+  # Options: citizen | green_card | h1b_required | opt | cpt | tn | other
+  visa_status: h1b_required
+
+  # Set true if you need the employer to sponsor your visa
+  needs_sponsorship: true
+
+  # Protected class flags (used to EXCLUDE jobs with eligibility conflicts)
+  is_disabled: false
+  is_veteran: false
+
+# ── Company Exclusions ───────────────────────────────────────────────────────
+# Add company names to skip (case-insensitive, partial match supported)
+exclude_companies:
+    - Emonics LLC
+  # - Amazon
+  # - Meta
+  # - Infosys
+  # - TCS
+  # - Wipro
+
+# ── Job Search ────────────────────────────────────────────────────────────────
+search:
+  # Job titles to search for (comma-separated or YAML list)
+  roles:
+    - AI/ML Engineer
+    # - ML Engineer
+    # - Data Scientist
+
+  # Locations to search in
+  locations:
+    - Texas
+    - California
+    - United States
+
+  # Seniority filter
+  # Options: junior | mid | senior | all
+  level: junior
+
+  # Number of validated jobs to find per role (after AI filtering)
+  count: 10
+
+  # Only show jobs posted within this window
+  # Options: 24h | 7d | 30d | all
+  posted_within: 7d
+
+# ── Pipeline Mode ─────────────────────────────────────────────────────────────
+pipeline:
+  # scrape_only  → scrape listings, save to CSV, no LLM calls
+  # ats_report   → scrape + AI validate + ATS score check on your original resume
+  # full         → scrape + AI validate + ATS audit + optimized resume PDF
+  mode: full
+
+# ── Output ───────────────────────────────────────────────────────────────────
+output:
+  jobs_csv: jobs.csv
+  resumes_dir: job_resumes
