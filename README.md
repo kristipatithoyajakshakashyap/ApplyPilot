@@ -30,9 +30,9 @@ Configure once in `job_search_config.yml`, then just run `python scrape_jobs.py`
 3. Runs an **AI validator** to reject off-topic listings, wrong seniority, and ineligible jobs (US citizenship required, security clearance, no sponsorship, federal/DoD roles)
 4. Skips **excluded companies** you list in the config
 5. Runs the selected **pipeline mode** on each validated job:
-   - `scrape_only` — save listings to CSV, zero LLM calls
-   - `ats_report` — ATS score on your original resume, no rewrite
-   - `full` — complete optimization + optimized PDF
+   - `scrape_only` - save listings to CSV, zero LLM calls
+   - `ats_report` - ATS score on your original resume, no rewrite
+   - `full` - complete optimization + optimized PDF
 6. Saves an optimized PDF per job → `job_resumes/<Company>_<Role>.pdf`
 7. Appends every result to `jobs.csv` (same columns as `applications.csv`)
 
@@ -220,7 +220,7 @@ output:
 | `candidate.needs_sponsorship` | `true` | Rejects jobs that say "no sponsorship" or require US citizenship |
 | `search.roles` | `[AI/ML Engineer]` | Job titles to search for |
 | `search.locations` | `[Texas, United States]` | Locations to search in |
-| `search.level` | `junior` / `mid` / `senior` / `all` | Seniority filter — applied at search time and validated by AI |
+| `search.level` | `junior` / `mid` / `senior` / `all` | Seniority filter - applied at search time and validated by AI |
 | `search.count` | `5` | Validated jobs to find per role |
 | `search.posted_within` | `24h` / `7d` / `30d` / `all` | Only include jobs posted within this window |
 | `pipeline.mode` | `scrape_only` / `ats_report` / `full` | How much processing to run per job |
@@ -247,7 +247,7 @@ output:
 
 | Mode | LLM calls | What you get |
 |---|---|---|
-| `scrape_only` | None | Raw listings saved to CSV. Fast — good for quick scouting. |
+| `scrape_only` | None | Raw listings saved to CSV. Fast - good for quick scouting. |
 | `ats_report` | AI validator + ATS auditor | ATS score for your original resume against each JD. No rewrite. |
 | `full` | All agents | AI validate → ATS audit → XYZ bullet rewrite → optimization loop → PDF |
 
