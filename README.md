@@ -102,7 +102,7 @@ applypilot/
 
 ### Resume Optimizer (`main.py`)
 
-#### --optimize — Full Pipeline
+#### --optimize - Full Pipeline
 
 Rewrites and optimizes your resume for a single job. PDF auto-named `optimized/<Company>_<Role>.pdf`.
 
@@ -272,7 +272,7 @@ Before running the optimization pipeline, every scraped listing is checked by an
 |---|---|
 | **Role match** | Is the title semantically equivalent to the requested role? ("Machine Learning Engineer" matches "ML Engineer"; "Software Engineer II" does not) |
 | **Seniority level** | Does the role match the requested level? A "Senior Staff Engineer" is rejected when `level: junior` is set. |
-| **Eligibility** | When `needs_sponsorship: true` — rejects listings that require US citizenship, security clearance (TS/SCI, Secret, DoD), "no sponsorship", or federal/defense roles. |
+| **Eligibility** | When `needs_sponsorship: true` - rejects listings that require US citizenship, security clearance (TS/SCI, Secret, DoD), "no sponsorship", or federal/defense roles. |
 
 Jobs failing any criterion are dropped before any LLM optimization runs.
 
@@ -337,8 +337,8 @@ ApplyPilot uses the [HackerRank hiring-agent](https://github.com/interviewstreet
 | `eval_iterations` | Rewrite iterations used (1–5) |
 | `corrections_count` | Number of bullet corrections applied |
 | `resume_path` | Absolute path to the optimized PDF |
-| `why_this_role` | First-person answer — copy-paste ready |
-| `why_this_company` | First-person answer — copy-paste ready |
+| `why_this_role` | First-person answer - copy-paste ready |
+| `why_this_company` | First-person answer - copy-paste ready |
 | `responsibilities` | Role responsibilities (second person) |
 | `start_date` | Start date from JD |
 | `end_date` | End date for contract roles, else N/A |
@@ -366,7 +366,7 @@ ApplyPilot uses the [HackerRank hiring-agent](https://github.com/interviewstreet
 | python-jobspy (Indeed) | Indeed USA listings |
 | python-jobspy (Google Jobs) | Aggregates from company career pages |
 | Jobright.ai (Playwright) | Modern job aggregator covering Workday/Greenhouse/Lever |
-| Google Jobs search (Playwright) | Direct Google Jobs results — covers Workday, Greenhouse, Lever, and company career pages |
+| Google Jobs search (Playwright) | Direct Google Jobs results - covers Workday, Greenhouse, Lever, and company career pages |
 
 ---
 
@@ -478,12 +478,12 @@ OLLAMA_MODEL=llama3.1:8b
 ## Tips
 
 - **Start with `scrape_only`** to quickly see what's available before committing to the full pipeline
-- **Quote all URLs** in CMD/PowerShell — `&` in query strings splits the command if unquoted
+- **Quote all URLs** in CMD/PowerShell - `&` in query strings splits the command if unquoted
 - **Close Excel** before running if `jobs.csv` is open — ApplyPilot will pause and prompt you
 - **JS portals** (Greenhouse, Lever, Workday) take 5–10s extra for the headless browser to render
-- **Expect ~3–5 min per job** in `full` mode — each job runs ATS audit + up to 5 rewrite iterations
-- **Dedup is automatic** — re-running skips any URL already in `jobs.csv`
-- **Exclude companies** by adding them to `job_search_config.yml` under `exclude_companies` — matching is partial and case-insensitive
+- **Expect ~3–5 min per job** in `full` mode - each job runs ATS audit + up to 5 rewrite iterations
+- **Dedup is automatic** - re-running skips any URL already in `jobs.csv`
+- **Exclude companies** by adding them to `job_search_config.yml` under `exclude_companies` - matching is partial and case-insensitive
 - **Override config for one run** without editing the file:
   ```bash
   python scrape_jobs.py --mode scrape_only --count 20 --posted 24h
@@ -494,13 +494,13 @@ OLLAMA_MODEL=llama3.1:8b
 ## Roadmap
 
 - [x] Auto-discover jobs by role and location (multiple job boards)
-- [x] AI validator — filter off-topic listings, wrong seniority, and ineligible jobs
-- [x] Visa/sponsorship filtering — rejects US citizenship required, security clearance, no sponsorship
+- [x] AI validator - filter off-topic listings, wrong seniority, and ineligible jobs
+- [x] Visa/sponsorship filtering - rejects US citizenship required, security clearance, no sponsorship
 - [x] Company exclusion list in config
-- [x] Three pipeline modes — scrape_only, ats_report, full
-- [x] Config file — run with no args
-- [x] Bulk optimize — run the full pipeline for each discovered job
-- [ ] Resume comparison dashboard — side-by-side before/after scores across all `jobs.csv` entries
+- [x] Three pipeline modes - scrape_only, ats_report, full
+- [x] Config file - run with no args
+- [x] Bulk optimize - run the full pipeline for each discovered job
+- [ ] Resume comparison dashboard - side-by-side before/after scores across all `jobs.csv` entries
 - [ ] Cover letter generation
 - [ ] Web UI
 
