@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Resume optimizer pipeline.
 
@@ -21,13 +21,13 @@ All runs are logged to applications.csv.
 from dotenv import load_dotenv
 load_dotenv()
 
-import argparse, os, re, sys
+import argparse, os, re, sys, time
 from pathlib import Path
 
 MAX_EVAL_ITERATIONS = 5
 ATS_TARGET  = 85
 EVAL_TARGET = 85
-OPTIMIZED_DIR = Path("optimized")
+RESUMES_BASE = Path("resumes")
 
 
 def _preview(text: str, chars: int = 300) -> str:
@@ -101,10 +101,10 @@ def _check_mode(args) -> None:
     bp = ev.get("bonus_points", {})
     dd = ev.get("deductions", {})
     print(f"\n  Final score      : {ev.get('final_score','?')}/120  (normalized {ev.get('normalized_score','?')}/100)  ({'PASS' if ev.get('passed') else 'FAIL'})")
-    print(f"  Keyword coverage : {sc.get('keyword_coverage',{}).get('score','?')}/35  — {sc.get('keyword_coverage',{}).get('evidence','')[:80]}")
-    print(f"  Skills alignment : {sc.get('skills_alignment',{}).get('score','?')}/30  — {sc.get('skills_alignment',{}).get('evidence','')[:80]}")
-    print(f"  Exp. relevance   : {sc.get('experience_relevance',{}).get('score','?')}/25  — {sc.get('experience_relevance',{}).get('evidence','')[:80]}")
-    print(f"  Summary & format : {sc.get('summary_format',{}).get('score','?')}/10  — {sc.get('summary_format',{}).get('evidence','')[:80]}")
+    print(f"  Open Source      : {sc.get('open_source',{}).get('score','?')}/35  — {sc.get('open_source',{}).get('evidence','')[:80]}")
+    print(f"  Self Projects    : {sc.get('self_projects',{}).get('score','?')}/30  — {sc.get('self_projects',{}).get('evidence','')[:80]}")
+    print(f"  Production       : {sc.get('production',{}).get('score','?')}/25  — {sc.get('production',{}).get('evidence','')[:80]}")
+    print(f"  Technical Skills : {sc.get('technical_skills',{}).get('score','?')}/10  — {sc.get('technical_skills',{}).get('evidence','')[:80]}")
     print(f"  Bonus points     : +{bp.get('total',0)}  {bp.get('breakdown','')[:80]}")
     print(f"  Deductions       : -{dd.get('total',0)}  {dd.get('reasons','')[:80]}")
     for s in ev.get("key_strengths", []):
@@ -123,6 +123,7 @@ def main() -> None:
     )
     parser.add_argument("--url",      help="Job posting URL (always quote it).")
     parser.add_argument("--company",  help="Company name — used when providing --jd manually.")
+    parser.add_argument("--role",     help="Job role/title — used when providing --jd manually.")
     parser.add_argument("--jd",       help="Job description text or path to a .txt file.")
     parser.add_argument("--optimize", action="store_true",
                         help="Run the full optimization pipeline.\n"
@@ -167,7 +168,6 @@ def main() -> None:
     from src.report import print_report
     from src import csv_logger
 
-    OPTIMIZED_DIR.mkdir(exist_ok=True)
     bar = "=" * 62
     print(f"\n{bar}\n  RESUME OPTIMIZER\n{bar}")
 
@@ -190,7 +190,8 @@ def main() -> None:
         jd_file = Path(args.jd)
         jd_text = jd_file.read_text(encoding="utf-8") if jd_file.exists() else args.jd
         company_name = args.company or "Unknown"
-        job_role = job_location = ""
+        job_role = args.role or ""
+        job_location = ""
         jd_start = "Immediate"; jd_end = "N/A"
         if not jd_text.strip():
             print("Error: Job description is empty."); sys.exit(1)
@@ -217,7 +218,7 @@ def main() -> None:
 
     # ── Step 5: Bullet optimization ──────────────────────────────
     print(f"\n[5/8] Optimizing bullets with XYZ formula...")
-    optimized = optimize_bullets(resume_text, jd_match)
+    optimized = optimize_bullets(resume_text, jd_match, jd_text=jd_text)
     print(f"      {len(optimized.get('rewrites', []))} bullets rewritten.")
 
     # ── Step 6: Job info + answers ───────────────────────────────
@@ -229,12 +230,14 @@ def main() -> None:
         job_info.setdefault("end_date", jd_end)
     print(f"      Company: {job_info.get('company_name')} | Role: {job_info.get('job_role')}")
 
-    # Output filename auto-generated from company + role
-    _filename = _auto_filename(
-        job_info.get("company_name", company_name or "Company"),
-        job_info.get("job_role", job_role or "Role"),
-    )
-    output_path = OPTIMIZED_DIR / _filename
+    _resolved_role    = job_info.get("job_role", job_role or "Role")
+    _resolved_company = job_info.get("company_name", company_name or "Company")
+    _role_folder = re.sub(r"[^\w\s-]+", "", _resolved_role).strip().replace(" ", "_")
+    output_dir = RESUMES_BASE / _role_folder
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    _filename = _auto_filename(_resolved_company, _resolved_role)
+    output_path = output_dir / _filename
     print(f"      Output: {output_path}")
 
     # ── Step 7: Evaluation loop ───────────────────────────────────
@@ -272,13 +275,16 @@ def main() -> None:
         ats_passed = ats_score >= ATS_TARGET
         both_pass  = ev_passed and ats_passed
 
-        kw_pct   = eval_result.get("keyword_coverage_pct", 0)
-        sk_pct   = eval_result.get("skills_alignment_pct", 0)
+        sc       = eval_result.get("scores", {})
+        os_s     = round(sc.get("open_source",      {}).get("score", 0))
+        sp_s     = round(sc.get("self_projects",    {}).get("score", 0))
+        pr_s     = round(sc.get("production",       {}).get("score", 0))
+        ts_s     = round(sc.get("technical_skills", {}).get("score", 0))
         final    = eval_result.get("final_score", ev_score)
         bonus    = eval_result.get("bonus_points", {}).get("total", 0)
         deduct   = eval_result.get("deductions", {}).get("total", 0)
         ats_dims = ats_loop.get("dimension_scores", {})
-        print(f"      Evaluator : {ev_score}/100  raw={final}/120  kw={kw_pct:.0f}%  skills={sk_pct:.0f}%  bonus=+{bonus}  deduct=-{deduct}  {'OK' if ev_passed else 'FAIL'}")
+        print(f"      Evaluator : {ev_score}/100  raw={final}/120  os={os_s}/35  sp={sp_s}/30  prod={pr_s}/25  tech={ts_s}/10  bonus=+{bonus}  deduct=-{deduct}  {'OK' if ev_passed else 'FAIL'}")
         print(f"      ATS       : {ats_score}/100  fmt={ats_dims.get('format_compliance','?')}/30  kw={ats_dims.get('keyword_coverage','?')}/35  {'OK' if ats_passed else 'FAIL'}")
 
         if both_pass:
@@ -301,8 +307,20 @@ def main() -> None:
     # ── Step 8: Final report + log ────────────────────────────────
     print(f"\n[8/8] Logging...")
     ats_optimized = ats_loop
+    elapsed_total = time.time() - _optimize_start
 
-    csv_logger.log({
+    suggestion = print_report(
+        ats_orig=ats_original,
+        ats_opt=ats_optimized,
+        jd_match=jd_match,
+        new_resume=new_resume,
+        job_info=job_info,
+        eval_result=eval_result,
+        iterations=iterations_used,
+        elapsed_secs=elapsed_total,
+    )
+
+    _log_row = {
         "company_name":        job_info.get("company_name", company_name),
         "job_role":            job_info.get("job_role", job_role),
         "location":            job_info.get("location", ""),
@@ -315,6 +333,7 @@ def main() -> None:
         "jd_match_score":      jd_match.get("match_score", 0),
         "eval_iterations":     iterations_used,
         "corrections_count":   len(new_resume.get("corrections", [])),
+        "suggested_resume":    suggestion,
         "resume_path":         str(output_path.resolve()),
         "why_this_role":       job_info.get("why_this_role", ""),
         "why_this_company":    job_info.get("why_this_company", ""),
@@ -322,19 +341,12 @@ def main() -> None:
         "start_date":          job_info.get("start_date", ""),
         "end_date":            job_info.get("end_date", ""),
         "job_description":     jd_text[:1000],
-    })
-    print(f"      Logged to applications.csv")
-
-    print_report(
-        ats_orig=ats_original,
-        ats_opt=ats_optimized,
-        jd_match=jd_match,
-        new_resume=new_resume,
-        job_info=job_info,
-        eval_result=eval_result,
-        iterations=iterations_used,
-    )
-
+    }
+    csv_logger.log(_log_row)
+    from src.db import init_db, mark_processed as _db_mark
+    init_db()
+    _db_mark(job_url, _log_row["company_name"], _log_row["job_role"], jd_text, _log_row)
+    print(f"      Logged to applications.csv + applypilot.db")
     print(f"Optimized resume: {output_path.resolve()}")
     print(f"{bar}\n")
 

@@ -1,4 +1,14 @@
-﻿"""Terminal report printer."""
+"""Terminal report printer."""
+
+
+def _suggested_resume(orig_score: int, opt_score: int) -> str:
+    if opt_score >= 85 and opt_score >= orig_score:
+        return "Optimized"
+    if orig_score >= 85 and orig_score >= opt_score:
+        return "Original"
+    if opt_score > orig_score:
+        return "Optimized (best effort)"
+    return "Original (optimized did not improve)"
 
 
 def print_report(
@@ -9,7 +19,9 @@ def print_report(
     job_info: dict = None,
     eval_result: dict = None,
     iterations: int = 1,
-) -> None:
+    elapsed_secs: float = 0.0,
+) -> str:
+    """Print full optimization report. Returns the suggested_resume value."""
     bar = "=" * 62
     print(f"\n{bar}")
     print("  OPTIMIZATION REPORT")
@@ -40,24 +52,30 @@ def print_report(
 
     # ATS scores
     orig_score = ats_orig.get("score", 0)
-    opt_score = ats_opt.get("score", 0)
+    opt_score  = ats_opt.get("score", 0)
     delta = opt_score - orig_score
-    sign = "+" if delta >= 0 else ""
+    sign  = "+" if delta >= 0 else ""
 
     print(f"\nATS SCORE")
     print(f"  Original   {orig_score}/100  [{ats_orig.get('verdict', '?')}]")
     print(f"  Optimized  {opt_score}/100  [{ats_opt.get('verdict', '?')}]")
     print(f"  Change     {sign}{delta} pts")
 
-    # Evaluator result
+    # Evaluator result (HackerRank hiring-agent framework)
     if eval_result:
-        ev_score = eval_result.get("score", 0)
+        ev_score  = eval_result.get("score", 0)
         ev_passed = eval_result.get("passed", False)
-        kw_pct = eval_result.get("keyword_coverage_pct", 0)
-        sk_pct = eval_result.get("skills_alignment_pct", 0)
-        print(f"\nEVALUATOR SCORE  {ev_score}/100  ({'PASSED' if ev_passed else 'FAILED'})")
-        print(f"  Keyword coverage   {kw_pct:.1f}%")
-        print(f"  Skills alignment   {sk_pct:.1f}%")
+        final_raw = eval_result.get("final_score", 0)
+        bonus     = eval_result.get("bonus_points", {}).get("total", 0)
+        deduct    = eval_result.get("deductions",   {}).get("total", 0)
+        sc        = eval_result.get("scores", {})
+        print(f"\nEVALUATOR SCORE  {ev_score}/100  raw={final_raw}/120  ({'PASSED' if ev_passed else 'FAILED'})")
+        print(f"  Open Source        {round(sc.get('open_source',      {}).get('score', 0))}/35")
+        print(f"  Self Projects      {round(sc.get('self_projects',    {}).get('score', 0))}/30")
+        print(f"  Production         {round(sc.get('production',       {}).get('score', 0))}/25")
+        print(f"  Technical Skills   {round(sc.get('technical_skills', {}).get('score', 0))}/10")
+        print(f"  Bonus Points      +{bonus}")
+        print(f"  Deductions        -{deduct}")
         print(f"  Iterations needed  {iterations}")
 
     # JD match
@@ -94,7 +112,25 @@ def print_report(
         for s in strengths[:5]:
             print(f"  + {s}")
 
+    # Suggested resume
+    suggestion = _suggested_resume(orig_score, opt_score)
+    print(f"\nSUGGESTED RESUME")
+    print(f"  Submit     {suggestion}")
+    if opt_score >= 85:
+        print(f"  Reason     Optimized resume passes ATS threshold (>= 85)")
+    elif orig_score >= 85:
+        print(f"  Reason     Original already passes ATS threshold; optimization did not improve further")
+    else:
+        print(f"  Reason     Neither version passes ATS threshold — submit optimized as best effort")
+
+    # Time taken
+    if elapsed_secs > 0:
+        m, s = divmod(int(elapsed_secs), 60)
+        time_str = f"{m}m {s}s" if m else f"{s}s"
+        print(f"\nTIME TAKEN   {time_str}")
+
     print()
+    return suggestion
 
 
 def _wrap(text: str, width: int = 60) -> None:

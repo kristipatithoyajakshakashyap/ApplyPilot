@@ -1,165 +1,172 @@
-﻿"""
-Resume evaluator using the HackerRank hiring-agent scoring framework.
+"""
+Resume evaluator — exact HackerRank hiring-agent scoring framework.
+Source: https://github.com/interviewstreet/hiring-agent
 
-Ported from https://github.com/interviewstreet/hiring-agent and adapted for
-resume-vs-job-description matching.
+Scoring dimensions (exact from hiring-agent):
+  open_source (0-35) | self_projects (0-30) | production (0-25) | technical_skills (0-10)
+  bonus up to +20 | deductions | final 0-120, normalized 0-100
 
-Original dimensions (hiring-agent):
-  open_source (35) | self_projects (30) | production (25) | technical_skills (10)
-  bonus up to +20 | deductions | final range 0-120
-
-Adapted dimensions for JD matching:
-  keyword_coverage (35) | skills_alignment (30) | experience_relevance (25) | summary_format (10)
-  bonus up to +20 | deductions | final range 0-120
-  normalized pass threshold: raw >= 85 (out of 120 cap)
+JD text is provided as context so production and technical_skills dimensions
+can factor in role-specific alignment. No other methodology change from hiring-agent.
 """
 from src.llm_client import chat
 from src.agents import parse_json
 
-# Mirrors hiring-agent constants
+# Exact constants from hiring-agent/evaluator.py
 MAX_BONUS_POINTS = 20
+MIN_FINAL_SCORE  = -20
 MAX_FINAL_SCORE  = 120
 
+# Exact category maximums from hiring-agent
 CATEGORY_MAXES = {
-    "keyword_coverage":     35,
-    "skills_alignment":     30,
-    "experience_relevance": 25,
-    "summary_format":       10,
+    "open_source":      35,
+    "self_projects":    30,
+    "production":       25,
+    "technical_skills": 10,
 }
 
+# Verbatim from hiring-agent/prompts/templates/resume_evaluation_system_message.jinja
+# Extended with JD-context instructions (marked clearly) for resume-optimization use
 _SYSTEM = """\
-You are a senior technical recruiter evaluating how well a resume matches a specific job description.
-Use the HackerRank hiring-agent scoring framework: evidence-based category scores, bonus points, and deductions.
+You are an expert technical recruiter evaluating resumes. Provide accurate, objective evaluations based on the given criteria.
 
-FAIRNESS CONSTRAINTS — never score on:
-  candidate name, gender, demographics, university/college name, GPA/CGPA,
-  location, or any personal characteristic unrelated to technical fit.
+**CRITICAL: You are NOT writing a resume summary. You are SCORING a resume for a job application.**
 
-━━━ SCORING DIMENSIONS (base 100 points) ━━━
+**CRITICAL FAIRNESS REQUIREMENTS:**
 
-1. KEYWORD COVERAGE (0-35 pts)
-   Count every distinct required and preferred keyword/technology from the JD.
-   Score = 35 * (matched_keywords / total_jd_keywords)
-   HIGH (28-35): 90-100% JD keywords present
-   MEDIUM (18-27): 65-89% present
-   LOW (8-17): 40-64% present
-   VERY LOW (0-7): <40% present
+**SCORES MUST NEVER DEPEND ON THE FOLLOWING FACTORS:**
 
-2. SKILLS ALIGNMENT (0-30 pts)
-   Are all required technical skills listed in the resume skills section verbatim?
-   HIGH (22-30): all required skills present, most preferred skills too
-   MEDIUM (14-21): most required skills present, some gaps
-   LOW (5-13): several required skills missing
-   ZERO (0-4): critical skills absent
+- Candidate's name, gender, or any personal demographic information
+- College, university, or educational institution name
+- CGPA, GPA, or academic grades
+- City, location, or geographical information
+- Any personal characteristics unrelated to technical skills and experience
 
-3. EXPERIENCE RELEVANCE (0-25 pts)
-   Does the candidate work experience, projects, and seniority match the JD?
-   Score on: years of relevant experience, domain overlap, seniority match, quantified achievements.
-   HIGH (19-25): strong domain match, appropriate seniority, metrics-driven bullets
-   MEDIUM (11-18): partial domain match or seniority mismatch
-   LOW (4-10): weak alignment
-   ZERO (0-3): no relevant experience
+**EVALUATION MUST BE BASED ONLY ON:**
 
-4. SUMMARY & FORMAT (0-10 pts)
-   Summary mentions >= 2 JD-specific themes (5 pts).
-   ATS-safe format: standard section names, consistent dates, no tables/graphics (5 pts).
+- Technical skills and programming languages
+- Project complexity and real-world impact
+- Open source contributions and community involvement
+- Work experience and production-level contributions
+- Technical communication and documentation abilities
+- Problem-solving and algorithmic thinking demonstrated in projects
 
-━━━ BONUS POINTS (max +20 total) ━━━
-  +5  All required JD skills present AND 100% keyword coverage
-  +3  Every bullet has a quantified metric (%, $, time, count)
-  +3  Seniority and domain are an exact match for the role
-  +2  Relevant certifications or publications matching the JD
-  +2  Open source or side projects directly related to the JD domain
-  +3  Leadership / founding experience relevant to the role
-  +2  Awards or recognition in the JD domain
+**MANDATORY: You MUST always fill ALL FOUR categories: open_source, self_projects, production, technical_skills.**
 
-━━━ DEDUCTIONS ━━━
-  -3 to -5  Per missing critical JD keyword or required skill
-  -2 to -4  Bullets use weak language ("responsible for", "helped with", "worked on")
-  -2 to -3  Format issues (tables, graphics, non-standard section names)
-  -1 to -3  Summary does not mention the JD domain or role type
+- For open_source: Analyze all open source contributions, GitHub/GitLab activity, and community involvement. Look for Google Summer of Code (GSoC) and Girl Script Summer of Code participation. **CRITICAL**: Having personal GitHub repositories does NOT constitute open source contribution. True open source contribution means contributing to OTHER people's projects or the broader community. Personal repositories should receive low scores (5-10 points) unless they demonstrate exceptional complexity or community impact. **CRITICAL**: Hacktoberfest participation alone (without evidence of contributions to significant projects) should receive 5-8 points maximum. **MANDATORY DEDUCTION**: If the only open source activity is Hacktoberfest participation without evidence of contributions to significant projects, apply a 3-5 point deduction to the open source score. **CRITICAL FOR KEY STRENGTHS**: Do NOT list "open source projects" or "active open source contributions" as key strengths unless the candidate has made actual contributions to other people's projects (not just personal repositories). **MANDATORY**: If the evidence states "No evidence of significant open source contributions" or "no demonstrable open source activity beyond personal GitHub projects", then open source should NOT be listed as a key strength. **NEW**: When GitHub data is provided, check the 'project_type' field — projects with 'open_source' type (multiple contributors) should receive higher scores than 'self_project' type (single contributor).
 
-Final score = sum(capped category scores) + bonus_points - deductions
-Cap final score at 120. All scores must be >= 0.
-Pass threshold: raw score >= 85.
+- For self_projects: Analyze the 'projects' section and any personal, hackathon, or side projects. **CRITICAL PROJECT EVALUATION**: Assess project complexity and impact, not just quantity. Simple tutorial projects (todo lists, calculators, basic CRUD apps, weather apps, note-taking apps) should receive LOW SCORES (1-9 points) or trigger deductions. **MANDATORY: For self projects that are basic CRUD applications, give NO POINTS (0 points).** Complex projects with real-world impact, advanced architecture, or contributions to popular open source projects should receive HIGH SCORES (20-30 points). Apply 2-5 point deductions for resumes with only simple tutorial projects. **PROJECT LINK REQUIREMENTS**: Projects without active links, GitHub repositories, or live demos should receive significantly lower scores. Apply 3-5 point deductions for each project without any GitHub link, live demo, or active URL. Projects with only GitHub links (no live demo) should receive 2-3 point deductions. Projects with broken or inactive links should receive 1-2 point deductions. Projects without links are difficult to verify and demonstrate lack of transparency and professionalism.
 
-━━━ OUTPUT FORMAT ━━━
-Return a single JSON object exactly matching this schema:
+- For production: Analyze the 'work' and 'volunteer' sections for any real-world, internship, or production experience. If there is any work, internship, or volunteer experience, you MUST score this category and provide evidence. **SPECIAL CONSIDERATION FOR STARTUP EXPERIENCE**: Give extra points for founder roles, co-founder positions, or early-stage engineer roles (first 10-20 employees) at startups, as these demonstrate exceptional initiative, technical leadership, and ability to build products from scratch.
+
+- For technical_skills: Analyze the 'skills', 'languages', and any evidence of technical breadth or problem-solving in projects, work, or competitions. You MUST score this category and provide evidence.
+
+CRITICAL: You MUST respond with the EXACT JSON structure specified in the prompt. Do not change category names, add extra fields, or modify the structure. The response must include ALL required fields: candidate_name, scores (with open_source, self_projects, production, technical_skills), bonus_points, deductions, key_strengths, areas_for_improvement.
+
+**IMPORTANT LIST CONSTRAINTS:**
+
+- key_strengths: Provide 1-5 items (maximum 5 key strengths)
+- areas_for_improvement: Provide 1-3 items (maximum 3 areas for improvement)
+
+**IMPORTANT SCORE CONSTRAINTS:**
+
+- Evidence fields cannot be empty string
+- All category scores must be >= 0 (cannot be negative)
+- **CATEGORY SCORE LIMITS** (CANNOT be exceeded under any circumstances):
+  - open_source: 0-35 points (maximum 35)
+  - self_projects: 0-30 points (maximum 30)
+  - production: 0-25 points (maximum 25)
+  - technical_skills: 0-10 points (maximum 10)
+- Bonus points total must be <= 20 (maximum 20 points)
+- **CRITICAL**: The total bonus points cannot exceed 20 points under any circumstances
+- **OVERALL SCORE LIMIT**: The total score (categories + bonus - deductions) cannot exceed 120 points
+
+IMPORTANT: Always check the structured 'profiles' section in the resume data before applying deductions for missing GitHub/portfolio. Only apply deductions if profiles are genuinely missing from the structured data. When GitHub data is provided in the resume text (look for '=== GITHUB DATA ===' section), thoroughly analyze the GitHub profile and repository information to enhance your evaluation of open source contributions and project quality. **CRITICAL**: Check the 'project_type' field in GitHub data — 'open_source' means multiple contributors, 'self_project' means single contributor. Self projects should receive low open source scores. When blog data is provided in the resume text (look for '=== BLOG DATA ===' section), analyze the technical blog posts, writing quality, topics covered, and frequency of posting to assess the candidate's technical communication skills and knowledge sharing abilities. High-quality technical blogs with regular posting and diverse technical topics should receive bonus points. IMPORTANT: Look for Google Summer of Code (GSoC), Girl Script Summer of Code, Outreachy, Season of Docs, or similar open source programs in the resume and award bonus points for participation in these prestigious programs. **CRITICAL PROJECT ASSESSMENT**: When evaluating projects, prioritize complexity and real-world impact over quantity. Simple tutorial projects should receive low scores and may trigger deductions. A single complex project is worth more than multiple simple ones. **CRITICAL FAIRNESS**: Ignore all personal demographic information, educational institution names, academic grades, and geographical location when scoring. Focus solely on technical skills, project quality, and professional experience. CRITICAL: You MUST respond with valid JSON that includes ALL required fields (candidate_name, scores, bonus_points, deductions, key_strengths, areas_for_improvement). The response must be valid JSON that matches the exact structure specified. Do not omit any fields or add extra fields. **CRITICAL FOR KEY STRENGTHS**: Only list "open source contributions" or "active open source projects" as key strengths if the candidate has made actual contributions to other people's projects (not just personal repositories). Personal GitHub repositories alone do not qualify as open source contributions. **MANDATORY**: If the evidence states "No evidence of significant open source contributions" or "no demonstrable open source activity beyond personal GitHub projects", then open source should NOT be listed as a key strength.
+
+=== JD-CONTEXT EXTENSION ===
+When a Job Description is provided (marked === JOB DESCRIPTION ===):
+- production score: factor in how closely the candidate's work experience, domain, and seniority match the JD
+- technical_skills score: check which JD-required technologies, languages, and frameworks are present vs absent
+- key_strengths: highlight skills and experiences from the resume that directly satisfy JD requirements
+- areas_for_improvement: list specific JD-required skills or keywords the candidate is missing
+- missing_keywords: list every JD-required technology/skill not found anywhere in the resume
+- missing_critical: subset of missing_keywords that appear in required qualifications
+- missing_preferred: subset that appear only in preferred/nice-to-have sections
+- feedback: if normalized score < 85, write precise instructions — what to add and where
+"""
+
+_OUTPUT_SCHEMA = """\
+Return ONLY this JSON (no markdown fences, no extra text):
 {
+  "candidate_name": "<name from resume or 'Unknown'>",
   "scores": {
-    "keyword_coverage":     {"score": <0-35>, "max": 35, "evidence": "<what matched and what is missing>"},
-    "skills_alignment":     {"score": <0-30>, "max": 30, "evidence": "<which required skills present/absent>"},
-    "experience_relevance": {"score": <0-25>, "max": 25, "evidence": "<domain/seniority match analysis>"},
-    "summary_format":       {"score": <0-10>, "max": 10, "evidence": "<summary themes found, format issues>"}
+    "open_source":      {"score": <0-35>, "max": 35, "evidence": "<evidence under 125 chars>"},
+    "self_projects":    {"score": <0-30>, "max": 30, "evidence": "<evidence under 125 chars>"},
+    "production":       {"score": <0-25>, "max": 25, "evidence": "<evidence under 125 chars>"},
+    "technical_skills": {"score": <0-10>, "max": 10, "evidence": "<evidence under 125 chars>"}
   },
-  "bonus_points": {
-    "total": <0-20>,
-    "breakdown": "<bullet list of bonuses awarded and why>"
-  },
-  "deductions": {
-    "total": <0 or positive number — applied negatively>,
-    "reasons": "<bullet list of deductions and why>"
-  },
-  "final_score": <integer, sum of category scores + bonus - deductions, capped at 120>,
-  "normalized_score": <integer 0-100, final_score * 100 / 120 rounded>,
-  "passed": <true if final_score >= 85>,
-  "key_strengths": ["<1-5 strongest match signals>"],
-  "improvement_areas": ["<1-5 specific things to fix to improve the score>"],
-  "missing_critical": ["<required JD keyword or skill not found in resume>"],
-  "missing_preferred": ["<preferred JD keyword not found>"],
-  "feedback": "<if not passed: precise instructions — what to add, where, how. If passed: empty string.>"
-}
-Return ONLY the JSON. No markdown fences. No extra text."""
+  "bonus_points": {"total": <0-20>, "breakdown": "<bonuses awarded and points each>"},
+  "deductions":   {"total": <positive number applied negatively>, "reasons": "<deductions and points each>"},
+  "key_strengths":         ["<1-5 strongest signals>"],
+  "areas_for_improvement": ["<1-3 areas>"],
+  "missing_keywords":  ["<every JD-required skill/tech not in resume>"],
+  "missing_critical":  ["<JD required-section skill not found>"],
+  "missing_preferred": ["<JD preferred-section skill not found>"],
+  "feedback": "<if normalized score < 85: precise fix instructions. Otherwise empty string.>"
+}"""
 
 
 def evaluate(resume_text: str, jd_text: str) -> dict:
-    prompt = f"Job Description:\n{jd_text}\n\nResume to evaluate:\n{resume_text}"
-    # HackerRank hiring-agent uses temperature=0.5, top_p=0.9
+    jd_block = f"=== JOB DESCRIPTION ===\n{jd_text}\n\n" if jd_text.strip() else ""
+    prompt = f"{jd_block}=== RESUME ===\n{resume_text}\n\n{_OUTPUT_SCHEMA}"
+
+    # hiring-agent uses temperature=0.5, top_p=0.9
     raw = chat(_SYSTEM, prompt, temperature=0.5, top_p=0.9)
     result = parse_json(raw, _default())
 
-    # Mirror hiring-agent score.py: cap each category, recompute final
+    # Exact score.py formula from hiring-agent: cap each category, recompute final
     scores = result.get("scores", {})
-    base = 0
+    base = 0.0
     for key, max_val in CATEGORY_MAXES.items():
         cat = scores.get(key, {})
         capped = min(float(cat.get("score", 0)), max_val)
         cat["score"] = capped
         base += capped
 
-    bonus = min(float(result.get("bonus_points", {}).get("total", 0)), MAX_BONUS_POINTS)
+    bonus  = min(float(result.get("bonus_points", {}).get("total", 0)), MAX_BONUS_POINTS)
     deduct = max(0.0, float(result.get("deductions", {}).get("total", 0)))
-    final = min(base + bonus - deduct, MAX_FINAL_SCORE)
-    final = max(0.0, final)
+    final  = min(max(base + bonus - deduct, 0.0), float(MAX_FINAL_SCORE))
 
     result["final_score"]      = round(final)
     result["normalized_score"] = round(final * 100 / MAX_FINAL_SCORE)
-    result["passed"]           = final >= 85
-    result["score"]            = result["normalized_score"]  # alias for loop compatibility
+    result["score"]            = result["normalized_score"]
+    result["passed"]           = result["normalized_score"] >= 85
 
-    # Expose per-dimension pcts for the loop display
-    kw = scores.get("keyword_coverage", {})
-    sk = scores.get("skills_alignment", {})
-    result["keyword_coverage_pct"]  = round(kw.get("score", 0) / 35 * 100)
-    result["skills_alignment_pct"]  = round(sk.get("score", 0) / 30 * 100)
+    # Compatibility aliases for loop display and report
+    ts = scores.get("technical_skills", {})
+    pr = scores.get("production", {})
+    result["keyword_coverage_pct"] = round(ts.get("score", 0) / 10 * 100, 1)
+    result["skills_alignment_pct"] = round(pr.get("score", 0) / 25 * 100, 1)
+
+    # Ensure all loop-required fields exist
+    result.setdefault("missing_keywords",  [])
+    result.setdefault("missing_critical",  [])
+    result.setdefault("missing_preferred", [])
+    result["improvement_areas"] = result.get("areas_for_improvement", [])
+    result.setdefault("feedback", "")
 
     return result
 
 
 def _default() -> dict:
     return {
-        "scores": {
-            "keyword_coverage":     {"score": 0, "max": 35, "evidence": ""},
-            "skills_alignment":     {"score": 0, "max": 30, "evidence": ""},
-            "experience_relevance": {"score": 0, "max": 25, "evidence": ""},
-            "summary_format":       {"score": 0, "max": 10, "evidence": ""},
-        },
-        "bonus_points": {"total": 0, "breakdown": ""},
-        "deductions":   {"total": 0, "reasons": ""},
-        "final_score": 0, "normalized_score": 0,
-        "passed": False, "score": 0,
-        "keyword_coverage_pct": 0, "skills_alignment_pct": 0,
-        "key_strengths": [], "improvement_areas": [],
-        "missing_critical": [], "missing_preferred": [],
+        "candidate_name": "Unknown",
+        "scores": {k: {"score": 0, "max": v, "evidence": "Evaluation failed"} for k, v in CATEGORY_MAXES.items()},
+        "bonus_points":  {"total": 0, "breakdown": ""},
+        "deductions":    {"total": 0, "reasons": ""},
+        "final_score": 0, "normalized_score": 0, "score": 0, "passed": False,
+        "keyword_coverage_pct": 0.0, "skills_alignment_pct": 0.0,
+        "key_strengths": [], "areas_for_improvement": [], "improvement_areas": [],
+        "missing_keywords": [], "missing_critical": [], "missing_preferred": [],
         "feedback": "Evaluation failed — LLM did not return valid JSON.",
     }

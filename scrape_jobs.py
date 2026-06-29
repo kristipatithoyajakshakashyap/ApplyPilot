@@ -75,7 +75,6 @@ def main() -> None:
                         help="Only jobs posted within this window (overrides config)")
     parser.add_argument("--mode",     default=None, choices=["scrape_only", "ats_report", "full"],
                         help="Pipeline mode (overrides config)")
-    parser.add_argument("--output",   default=None, help="Output CSV path (overrides config)")
     args = parser.parse_args()
 
     # ── Resolve values: CLI arg wins, then config, then hardcoded default ──
@@ -85,8 +84,6 @@ def main() -> None:
     count         = args.count     or _get(cfg, "search", "count", default=10)
     posted        = args.posted    or _get(cfg, "search", "posted_within", default="7d")
     mode          = args.mode      or _get(cfg, "pipeline", "mode", default="full")
-    csv_path      = args.output    or _get(cfg, "output", "jobs_csv", default="jobs.csv")
-    resumes_dir       = _get(cfg, "output", "resumes_dir", default="job_resumes")
     exclude_companies = _get(cfg, "exclude_companies", default=[]) or []
 
     # Candidate profile passed to validator
@@ -115,7 +112,7 @@ def main() -> None:
     print(f"  Count         : {count} per role")
     print(f"  Posted within : {posted}")
     print(f"  Mode          : {mode}")
-    print(f"  Output CSV    : {csv_path}")
+    print(f"  Output        : <role>.csv per role  |  resumes/<role>/")
     if mode != "scrape_only":
         print(f"  Visa status   : {candidate.get('visa_status', 'not set')}")
         print(f"  Sponsorship   : {'required' if candidate.get('needs_sponsorship') else 'not required'}")
@@ -128,12 +125,10 @@ def main() -> None:
         roles=roles,
         locations=locations,
         count=count,
-        csv_path=csv_path,
         level=level_arg,
         mode=mode,
         hours_old=hours_old,
         candidate=candidate,
-        resumes_dir=resumes_dir,
         exclude_companies=exclude_companies,
     )
 

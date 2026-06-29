@@ -19,8 +19,8 @@ from pathlib import Path
 
 logging.getLogger("JobSpy").setLevel(logging.CRITICAL)
 
-JOBS_CSV    = "jobs.csv"
-RESUMES_DIR = Path("job_resumes")
+RESUMES_BASE = Path("resumes")
+RESUMES_DIR  = RESUMES_BASE  # updated per-role inside discover_jobs
 
 MAX_EVAL_ITERATIONS = 5
 ATS_TARGET  = 85
@@ -33,7 +33,7 @@ CSV_FIELDS = [
     "timestamp", "company_name", "job_role", "location", "job_url",
     "original_ats_score", "original_verdict",
     "optimized_ats_score", "optimized_verdict",
-    "eval_score", "jd_match_score", "eval_iterations", "corrections_count",
+    "eval_score", "jd_match_score", "eval_iterations", "corrections_count", "suggested_resume",
     "resume_path",
     "why_this_role", "why_this_company", "responsibilities",
     "start_date", "end_date", "job_description",
@@ -79,6 +79,16 @@ def _norm(val) -> str:
     except (TypeError, ValueError):
         pass
     return str(val).replace("\n", " ").replace("\r", " ").strip()
+
+
+def _role_slug(role: str) -> str:
+    """'ML Engineer' -> 'ml_engineer' — used as the CSV filename stem."""
+    return re.sub(r"[^\w]+", "_", role.lower()).strip("_")
+
+
+def _role_folder(role: str) -> str:
+    """'ML Engineer' -> 'ML_Engineer' — used as the resumes sub-folder name."""
+    return re.sub(r"[^\w\s-]+", "", role).strip().replace(" ", "_")
 
 
 def _auto_filename(company: str, role: str) -> str:
@@ -297,9 +307,9 @@ def _validate(candidates: list, role: str, locations: list, level: str | None = 
         return candidates
 
 
-# ─── full optimization pipeline ───────────────────────────────────────────────
+# --- full optimization pipeline ---
 
-def _run_pipeline(job: dict, resume_text: str, resume_path: str) -> dict | None:
+def _run_pipeline(job: dict, resume_text: str, resume_path: str, existing_urls: set | None = None) -> dict | None:
     from src.agents.ats_auditor import audit_ats
     from src.agents.job_matcher import match_jd
     from src.agents.resume_optimizer import optimize_bullets
@@ -309,49 +319,70 @@ def _run_pipeline(job: dict, resume_text: str, resume_path: str) -> dict | None:
     from src.pdf_builder import build_pdf
     from src.pdf_reader import extract_text
     from src.web_scraper import scrape_job
+    from src.report import print_report
 
     company  = job.get("company_name", "Unknown")
     role_ttl = job.get("job_role", "Unknown")
     location = job.get("job_location", "")
     url      = job.get("job_url", "")
 
-    # 1. Get full JD — fall back to scraping if description is short
+    # Guard: skip if URL already seen (CSV or DB)
+    if existing_urls is not None and url and url in existing_urls:
+        print(f"    Skipped -- already processed: {url}")
+        return None
+
+    _pipeline_start = time.time()
+
+    # 1. Get full JD -- fall back to scraping if description is short
     jd_text = job.get("job_description", "").strip()
     if len(jd_text) < 200 and url:
         print(f"    Fetching full JD from URL...")
         scraped = scrape_job(url)
         if not scraped.get("scrape_failed"):
-            jd_text   = scraped.get("job_description") or scraped.get("jd_text") or jd_text
-            company   = scraped.get("company_name", company) or company
-            role_ttl  = scraped.get("job_role", role_ttl) or role_ttl
-            location  = scraped.get("location", location) or location
+            jd_text  = scraped.get("job_description") or scraped.get("jd_text") or jd_text
+            company  = scraped.get("company_name", company) or company
+            role_ttl = scraped.get("job_role", role_ttl) or role_ttl
+            location = scraped.get("location", location) or location
 
     if not jd_text.strip():
-        print(f"    Skipped — could not get JD.")
+        print(f"    Skipped -- could not get JD.")
+        return None
+
+    # JD-level dedup: same company + role + JD fingerprint = already processed
+    from src.db import is_duplicate_jd, mark_processed as db_mark_processed, mark_skipped as db_mark_skipped
+    if is_duplicate_jd(company, role_ttl, jd_text):
+        print(f"    Skipped -- same company/role/JD already in DB.")
+        db_mark_skipped(url)
         return None
 
     # 2. Initial ATS audit on original resume
     print(f"    [1] Initial ATS audit...")
-    ats_orig = audit_ats(resume_text, jd_text)
-    print(f"        ATS: {ats_orig.get('score','?')}/100 [{ats_orig.get('verdict','?')}]")
+    ats_orig  = audit_ats(resume_text, jd_text)
+    ats_dims  = ats_orig.get("dimension_scores", {})
+    print(f"        ATS: {ats_orig.get('score','?')}/100 [{ats_orig.get('verdict','?')}]  "
+          f"kw={ats_dims.get('keyword_coverage','?')}/35  fmt={ats_dims.get('format_compliance','?')}/30")
 
-    # 3. JD match + bullet optimization (same as main.py steps 4-5)
-    print(f"    [2] JD match + bullet optimization...")
+    # 3. JD match + bullet optimization
+    print(f"    [2] JD match analysis...")
     jd_match  = match_jd(resume_text, jd_text)
-    optimized = optimize_bullets(resume_text, jd_match)
+    print(f"        Match: {jd_match.get('match_score','?')}/100  "
+          f"missing critical: {sum(1 for k in jd_match.get('missing_keywords',[]) if k.get('importance') in ('Critical','High'))}")
+    print(f"    [3] Rewriting bullets toward JD...")
+    optimized = optimize_bullets(resume_text, jd_match, jd_text=jd_text)
+    print(f"        {len(optimized.get('rewrites', []))} bullets rewritten.")
 
     # 4. Job info + answers
-    print(f"    [3] Generating job info answers...")
+    print(f"    [4] Generating job info answers...")
     job_info = extract_job_info(jd_text, resume_text, company, role_ttl)
     company  = job_info.get("company_name", company) or company
     role_ttl = job_info.get("job_role", role_ttl) or role_ttl
 
     # 5. Output path
-    RESUMES_DIR.mkdir(exist_ok=True)
+    RESUMES_DIR.mkdir(parents=True, exist_ok=True)
     out_path = RESUMES_DIR / _auto_filename(company, role_ttl)
 
-    # 6. Evaluation loop (mirrors main.py step 7)
-    print(f"    [4] Optimization loop (target: ATS+Eval >= {ATS_TARGET})...")
+    # 6. Evaluation loop
+    print(f"    [5] Optimization loop (target: ATS >= {ATS_TARGET} and Eval >= {EVAL_TARGET})...")
     new_resume = {}
     eval_result = {}
     ats_loop   = {}
@@ -381,9 +412,22 @@ def _run_pipeline(job: dict, resume_text: str, resume_path: str) -> dict | None:
 
         ev_score  = eval_result.get("score", 0)
         ats_score = ats_loop.get("score", 0)
-        print(f"        Eval: {ev_score}/100  ATS: {ats_score}/100")
+        ev_passed  = ev_score  >= EVAL_TARGET
+        ats_passed = ats_score >= ATS_TARGET
 
-        if ev_score >= EVAL_TARGET and ats_score >= ATS_TARGET:
+        sc_ev   = eval_result.get("scores", {})
+        os_s    = round(sc_ev.get("open_source",      {}).get("score", 0))
+        sp_s    = round(sc_ev.get("self_projects",    {}).get("score", 0))
+        pr_s    = round(sc_ev.get("production",       {}).get("score", 0))
+        ts_s    = round(sc_ev.get("technical_skills", {}).get("score", 0))
+        raw_ev  = eval_result.get("final_score", ev_score)
+        bonus   = eval_result.get("bonus_points", {}).get("total", 0)
+        deduct  = eval_result.get("deductions", {}).get("total", 0)
+        ad      = ats_loop.get("dimension_scores", {})
+        print(f"        Evaluator : {ev_score}/100  raw={raw_ev}/120  os={os_s}/35  sp={sp_s}/30  prod={pr_s}/25  tech={ts_s}/10  bonus=+{bonus}  deduct=-{deduct}  {'OK' if ev_passed else 'FAIL'}")
+        print(f"        ATS       : {ats_score}/100  fmt={ad.get('format_compliance','?')}/30  kw={ad.get('keyword_coverage','?')}/35  {'OK' if ats_passed else 'FAIL'}")
+
+        if ev_passed and ats_passed:
             print(f"        Both targets met. PASSED.")
             break
 
@@ -391,6 +435,10 @@ def _run_pipeline(job: dict, resume_text: str, resume_path: str) -> dict | None:
         missing_critical   = eval_result.get("missing_critical", [])
         missing_preferred  = eval_result.get("missing_preferred", [])
         ats_issues = ats_loop.get("critical_issues", []) + ats_loop.get("high_priority", [])
+        if missing_critical:
+            print(f"        Missing keywords : {', '.join(missing_critical[:6])}")
+        if ats_issues:
+            print(f"        ATS issues       : {'; '.join(ats_issues[:3])}")
 
     final_ev  = eval_result.get("score", 0)
     final_ats = ats_loop.get("score", 0)
@@ -398,8 +446,22 @@ def _run_pipeline(job: dict, resume_text: str, resume_path: str) -> dict | None:
         print(f"        Warning: best-effort after {MAX_EVAL_ITERATIONS} iterations "
               f"(Eval={final_ev} ATS={final_ats}).")
 
+    elapsed = time.time() - _pipeline_start
     print(f"    PDF saved: {out_path}")
-    return {
+
+    # 7. Detailed report (same as main.py)
+    suggestion = print_report(
+        ats_orig=ats_orig,
+        ats_opt=ats_loop,
+        jd_match=jd_match,
+        new_resume=new_resume,
+        job_info={**job_info, "location": location},
+        eval_result=eval_result,
+        iterations=iterations_used,
+        elapsed_secs=elapsed,
+    )
+
+    row = {
         "timestamp":           datetime.now().strftime("%Y-%m-%d %H:%M"),
         "company_name":        company,
         "job_role":            role_ttl,
@@ -413,6 +475,7 @@ def _run_pipeline(job: dict, resume_text: str, resume_path: str) -> dict | None:
         "jd_match_score":      jd_match.get("match_score", 0),
         "eval_iterations":     iterations_used,
         "corrections_count":   len(new_resume.get("corrections", [])),
+        "suggested_resume":    suggestion,
         "resume_path":         str(out_path.resolve()),
         "why_this_role":       job_info.get("why_this_role", ""),
         "why_this_company":    job_info.get("why_this_company", ""),
@@ -421,6 +484,8 @@ def _run_pipeline(job: dict, resume_text: str, resume_path: str) -> dict | None:
         "end_date":            job_info.get("end_date", "N/A"),
         "job_description":     jd_text[:1000],
     }
+    db_mark_processed(url, company, role_ttl, jd_text, row)
+    return row
 
 
 # ─── CSV writer ───────────────────────────────────────────────────────────────
@@ -462,6 +527,7 @@ def _scrape_only_row(job: dict) -> dict:
         "jd_match_score":      "",
         "eval_iterations":     "",
         "corrections_count":   "",
+        "suggested_resume":    "",
         "resume_path":         "",
         "why_this_role":       "",
         "why_this_company":    "",
@@ -495,15 +561,17 @@ def _ats_report_row(job: dict, resume_text: str) -> dict | None:
         return None
 
     ats = audit_ats(resume_text, jd_text)
-    print(f"    ATS: {ats.get('score','?')}/100 [{ats.get('verdict','?')}]")
+    ats_score = ats.get("score", 0)
+    print(f"    ATS: {ats_score}/100 [{ats.get('verdict','?')}]")
+    suggestion = "Original" if ats_score >= 85 else "Optimized recommended"
 
-    return {
+    row = {
         "timestamp":           datetime.now().strftime("%Y-%m-%d %H:%M"),
         "company_name":        company,
         "job_role":            role_ttl,
         "location":            location,
         "job_url":             url,
-        "original_ats_score":  ats.get("score", 0),
+        "original_ats_score":  ats_score,
         "original_verdict":    ats.get("verdict", ""),
         "optimized_ats_score": "",
         "optimized_verdict":   "",
@@ -511,6 +579,7 @@ def _ats_report_row(job: dict, resume_text: str) -> dict | None:
         "jd_match_score":      "",
         "eval_iterations":     "",
         "corrections_count":   "",
+        "suggested_resume":    suggestion,
         "resume_path":         "",
         "why_this_role":       "",
         "why_this_company":    "",
@@ -521,7 +590,14 @@ def _ats_report_row(job: dict, resume_text: str) -> dict | None:
     }
 # ─── public API ───────────────────────────────────────────────────────────────
 
-def discover_jobs(roles: list, locations: list, count: int, csv_path: str = JOBS_CSV, level: str | None = None, mode: str = "full", hours_old: int | None = _DEFAULT_HOURS_OLD, candidate: dict | None = None, resumes_dir: str = "job_resumes", exclude_companies: list | None = None) -> None:
+def discover_jobs(roles: list, locations: list, count: int, level: str | None = None, mode: str = "full", hours_old: int | None = _DEFAULT_HOURS_OLD, candidate: dict | None = None, exclude_companies: list | None = None) -> None:
+    """
+    Scrape, validate, and optionally optimize jobs for each role.
+    Each role gets its own CSV ({role_slug}.csv) and resume subfolder
+    (resumes/{role_folder}/) so results are kept cleanly separated.
+    """
+    from src.db import init_db, load_seen_urls, db_stats
+
     resume_text = ""
     resume_path = os.getenv("RESUME_PATH", "resume.pdf")
     if mode != "scrape_only":
@@ -532,21 +608,34 @@ def discover_jobs(roles: list, locations: list, count: int, csv_path: str = JOBS
         if not resume_text.strip():
             raise SystemExit(f"Error: Could not extract text from {resume_path}.")
 
-    global RESUMES_DIR
-    RESUMES_DIR = Path(resumes_dir)
-
-    path = Path(csv_path)
-    existing_urls = _load_existing_urls(path)
+    init_db()
+    # DB is the primary source of truth; per-role CSVs add an extra safety net
+    existing_urls = load_seen_urls()
     total_new = 0
+    session_start = time.time()
+
+    stats = db_stats()
+    print(f"  DB state: {stats['total']} total | {stats['done']} done | {stats['skipped']} skipped")
 
     for role in roles:
+        global RESUMES_DIR
+        # Per-role CSV: ml_engineer.csv, data_scientist.csv, etc.
+        role_csv  = Path(f"{_role_slug(role)}.csv")
+        # Per-role resume folder: resumes/ML_Engineer/, resumes/Data_Scientist/, etc.
+        RESUMES_DIR = RESUMES_BASE / _role_folder(role)
+        # Also pull URLs already in this role's CSV (survives DB clear)
+        existing_urls |= _load_existing_urls(role_csv)
+
+        role_start = time.time()
         print("\n" + "="*55)
-        print(f"Role: {role!r}")
+        print(f"Role: {role!r}  ->  {role_csv}  |  resumes/{_role_folder(role)}/")
         print("="*55)
 
-        # Fetch 5x more than needed so validation filter still leaves enough
+        # ── Scrape ──────────────────────────────────────────────
+        scrape_start = time.time()
         raw = _scrape_all_sources(role, locations, count * 5, level=level, hours_old=hours_old)
-        # Remove already-processed URLs before validation
+        scrape_secs = time.time() - scrape_start
+
         raw = [j for j in raw if j.get("job_url") not in existing_urls]
         if exclude_companies:
             before = len(raw)
@@ -554,39 +643,65 @@ def discover_jobs(roles: list, locations: list, count: int, csv_path: str = JOBS
             excluded = before - len(raw)
             if excluded:
                 print(f"  Excluded {excluded} job(s) from blocked companies.")
-        print(f"  Raw candidates (new only): {len(raw)}")
 
+        print(f"  Raw candidates (new only): {len(raw)}  [scraped in {scrape_secs:.0f}s]")
+
+        # ── Validate ─────────────────────────────────────────────
         if mode == "scrape_only":
-            validated = raw  # skip AI validator in scrape_only mode
+            validated = raw
+            validate_secs = 0.0
         else:
+            validate_start = time.time()
             validated = _validate(raw, role, locations, level=level, candidate=candidate)
+            validate_secs = time.time() - validate_start
+            print(f"  Validated: {len(validated)} genuine matches  [took {validate_secs:.0f}s]")
 
-        # Trim to exactly `count` jobs
         to_process = validated[:count]
         if len(to_process) < count:
             print(f"  Note: only {len(to_process)} validated job(s) found (requested {count}).")
 
+        # ── Optimize ─────────────────────────────────────────────
+        role_opt_secs = 0.0
         for i, job in enumerate(to_process, 1):
             url = job.get("job_url", "")
-            print(f"\n  [{i}/{len(to_process)}] {job.get('company_name','?')} — {job.get('job_role','?')}")
+            company  = job.get("company_name", "?")
+            role_ttl = job.get("job_role", "?")
+            print(f"\n  [{i}/{len(to_process)}] {company} — {role_ttl}")
+            job_start = time.time()
             try:
                 if mode == "scrape_only":
                     result = _scrape_only_row(job)
                 elif mode == "ats_report":
                     result = _ats_report_row(job, resume_text)
                 else:
-                    result = _run_pipeline(job, resume_text, resume_path)
+                    result = _run_pipeline(job, resume_text, resume_path, existing_urls=existing_urls)
+                job_secs = time.time() - job_start
                 if result:
-                    _write_row(result, path)
+                    _write_row(result, role_csv)
                     existing_urls.add(url)
                     total_new += 1
+                    role_opt_secs += job_secs
+                    jm, js = divmod(int(job_secs), 60)
+                    time_str = f"{jm}m {js}s" if jm else f"{js}s"
+                    print(f"  Job time: {time_str}")
             except Exception as e:
                 print(f"  Error processing job: {e}")
 
-    print(f"\n{'='*55}")
-    print(f"Done. {total_new} new job(s) optimized and logged to {csv_path}.")
-    print(f"Resumes saved in: {RESUMES_DIR.resolve()}")
-    print(f"{'='*55}")
+        role_secs = time.time() - role_start
+        rm, rs = divmod(int(role_secs), 60)
+        print(f"\n  Role summary — scrape {scrape_secs:.0f}s | validate {validate_secs:.0f}s | optimize {role_opt_secs:.0f}s | total {rm}m {rs}s")
+
+    session_secs = time.time() - session_start
+    sm, ss = divmod(int(session_secs), 60)
+    updated = db_stats()
+    sep = "=" * 55
+    print(f"\n{sep}")
+    print(f"Done. {total_new} new job(s) logged (one CSV per role).")
+    if mode != "scrape_only":
+        print(f"Resumes saved under: {RESUMES_BASE.resolve()}/")
+    print(f"DB: {updated['total']} total | {updated['done']} done | {updated['skipped']} skipped")
+    print(f"Total session time: {sm}m {ss}s")
+    print(sep)
 
 
 

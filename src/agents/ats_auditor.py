@@ -1,4 +1,4 @@
-﻿"""
+"""
 Senior ATS audit agent using the HackerRank hiring-agent scoring framework.
 
 Ported from https://github.com/interviewstreet/hiring-agent and adapted for
@@ -7,7 +7,7 @@ ATS compliance checking — the same scoring methodology top companies use.
 Dimensions (mirrors hiring-agent structure):
   keyword_coverage (35) | format_compliance (30) | section_completeness (25) | content_quality (10)
   bonus up to +20 | deductions | final range 0-120
-  normalized pass threshold: raw >= 85
+  normalized pass threshold: normalized_score >= 85  (i.e. raw >= 102/120)
 """
 from src.llm_client import chat
 from src.agents import parse_json
@@ -154,8 +154,9 @@ def audit_ats(resume_text: str, jd_text: str = "") -> dict:
     result["final_score"]      = round(final)
     result["normalized_score"] = round(final * 100 / MAX_FINAL_SCORE)
     result["score"]            = result["normalized_score"]
-    result["passed"]           = final >= 85
-    result["verdict"]          = "PASS" if final >= 85 else ("RISK" if final >= 65 else "REJECT")
+    norm = result["normalized_score"]
+    result["passed"]           = norm >= 85
+    result["verdict"]          = "PASS" if norm >= 85 else ("RISK" if norm >= 65 else "REJECT")
 
     # Populate flat dimension_scores for loop display compatibility
     result["dimension_scores"] = {

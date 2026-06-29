@@ -49,10 +49,26 @@ You are a strict job match validator for a job seeker with this profile:
 Evaluate each job listing against THREE criteria. ALL must pass:
 
 ━━━ CRITERION 1 — ROLE MATCH ━━━
-The job title must be semantically equivalent to the requested role.
-  MATCH examples for "ML Engineer": "Machine Learning Engineer", "Applied Scientist",
-    "AI/ML Engineer", "Deep Learning Engineer", "NLP Engineer", "MLOps Engineer".
-  NO MATCH: "Software Engineer II", "Data Engineer", "Backend Engineer", "DevOps Engineer".
+The job must be about work in the requested role's domain. Use BOTH the title AND the JD snippet.
+
+Step 1 — title check:
+  If the title is a clear semantic match → ACCEPT (move to Criterion 2).
+  If the title is a clear mismatch with no AI/ML overlap at all → REJECT.
+  If the title contains "AI", "ML", "Machine Learning", "Data Science", "Applied Science",
+  or "Artificial Intelligence" as a word but has an unusual suffix (e.g. "AI Identity
+  Security Engineer", "AI Solutions Engineer", "AI Platform Engineer") → go to Step 2.
+
+Step 2 — JD content check (only for ambiguous titles):
+  Read the JD snippet. If the work described involves model training, inference, LLMs,
+  neural networks, ML pipelines, feature engineering, or AI system development → ACCEPT.
+  If the work is clearly something else (pure security, devops, frontend, ETL only) → REJECT.
+
+MATCH examples for "ML Engineer": "Machine Learning Engineer", "Applied Scientist",
+  "AI/ML Engineer", "Deep Learning Engineer", "NLP Engineer", "MLOps Engineer",
+  "AI Engineer", "AI Research Engineer", "ML Platform Engineer", "AI Software Engineer",
+  "AI Solutions Engineer" (when JD describes ML/AI work).
+NO MATCH: "Software Engineer II" (no AI/ML in JD), "Data Engineer" (ETL pipelines only),
+  "Backend Engineer", "DevOps Engineer", "Security Engineer" (when JD has no ML content).
 
 ━━━ CRITERION 2 — SENIORITY LEVEL ({level_label}) ━━━
 {level_rule}
